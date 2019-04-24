@@ -20,12 +20,10 @@ namespace ShakespeareSqlite
         private static async Task Run()
         {
             Console.WriteLine("Sqlite file : ");
-            //string bddFile = Console.ReadLine();
-            string bddFile = @"C:\Users\dherve\Desktop\test.sqlite";
+            string bddFile = Console.ReadLine();
 
             Console.WriteLine("Ressource file : ");
-            //string resourceFile = Console.ReadLine();
-            string resourceFile = @"C:\Users\dherve\Desktop\shakespeare.dat";
+            string resourceFile = Console.ReadLine();
 
             SQLiteConnection dbConnection = new SQLiteConnection($"Data Source={bddFile};Version=3;");
             dbConnection.Open();
@@ -35,11 +33,8 @@ namespace ShakespeareSqlite
             string fillDatabase = null;
             try
             {
-                string setup = "PRAGMA test.synchronous = off";
                 fillDatabase = File.ReadAllText(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location) + "/SQL/shakespeare.sql");
                 SQLiteCommand command = new SQLiteCommand(fillDatabase, dbConnection);
-                await command.ExecuteNonQueryAsync();
-                command.CommandText = fillDatabase;
                 await command.ExecuteNonQueryAsync();
             }
             catch (Exception e)
