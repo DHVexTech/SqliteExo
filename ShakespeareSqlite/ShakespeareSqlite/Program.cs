@@ -1,6 +1,10 @@
-﻿using System;
+﻿using ShakespeareSqlite.Helpers;
+using ShakespeareSqlite.Models;
+using System;
+using System.Collections.Generic;
 using System.Data.SQLite;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 
@@ -25,7 +29,6 @@ namespace ShakespeareSqlite
 
             SQLiteConnection dbConnection = new SQLiteConnection($"Data Source={bddFile};Version=3;");
             dbConnection.Open();
-            SqliteRequest.Config(dbConnection);
 
             Console.WriteLine("Config done !");
             Console.WriteLine("Starting initialization...");
@@ -48,28 +51,44 @@ namespace ShakespeareSqlite
 
 
             Console.WriteLine("Writing data, it would take few seconds...");
-            DateTime start = DateTime.UtcNow;
+            List<string> personnes = new List<string>();
+            List<string> pieces = new List<string>();
+            List<Tirades> tirades = new List<Tirades>();
+            List<Texte> textes = new List<Texte>();
+            Tirades tirade;
+            string personneName = "";
+            string pieceName = "";
             string line;
+
+            DateTime start = DateTime.UtcNow;
             try
             {
-                int maxProccessingData = 1000;
-                bool hitMaxProccessingData = false;
-                MappingData[] datas = new MappingData[maxProccessingData];
-
                 StreamReader sr = new StreamReader(resourceFile);
                 line = sr.ReadLine();
 
-                int i = 0;
                 while (line != null)
                 {
-                    datas[i] = ConvertStringToMappingData(line);
-                    i++;
-                    if (i == maxProccessingData)
+                    string[] lineSplitted = line.Split('|');
+
+                    personneName = Splitter.PersonnageSplitter(lineSplitted);
+                    if (!personnes.Exists(x => x == personneName) && !string.IsNullOrEmpty(personneName))
                     {
-                        await ProccessToDatabase(datas, datas.Length, dbConnection);
-                        Array.Clear(datas, 0, maxProccessingData);
-                        i = 0;
+                        personnes.Add(personneName);
                     }
+
+                    pieceName = Splitter.PieceSplitter(lineSplitted);
+                    if (!pieces.Exists(x => x == pieceName) && !string.IsNullOrEmpty(pieceName))
+                    {
+                        pieces.Add(pieceName);
+                    }
+
+                    tirade = Splitter.TiradesSplitter(lineSplitted);
+                    if (!tirades.Exists(x => x.NomPiece == tirade.NomPiece && x.Acte == tirade.Acte && x.Scene == tirade.Scene) && tirade.TiradeNumber != 0)
+                    {
+                        tirades.Add(tirade);
+                    }
+
+                    textes.Add(Splitter.TexteSplitter(lineSplitted));
 
                     line = sr.ReadLine();
                 }
@@ -78,6 +97,26 @@ namespace ShakespeareSqlite
             {
                 throw new Exception(e.Message);
             }
+
+            int test = personnes.FindIndex(x => x == "KING HENRY IV");
+
+            Parallel.For(0, tirades.Count, i =>
+            {
+                tirades[i].IdPersonne = personnes.FindIndex(x => x == tirades[i].NomPersonnage);
+                tirades[i].IdPiece = pieces.FindIndex(x => x == tirades[i].NomPiece);
+            });
+
+            Parallel.For(0, textes.Count, i =>
+            {
+                if (textes[i].Text.Contains('\''))
+                    textes[i].Text = textes[i].Text.Replace('\'', ' ');
+                textes[i].IdTirade = tirades.FindIndex(x => x.Acte == textes[i].ActeNumber && x.IdPiece == textes[i].IdPiece && x.Scene == textes[i].SceneNumber);
+                textes[i].IdPiece = pieces.FindIndex(x => x == textes[i].NomPiece);
+            });
+
+
+            await SqliteRequest.Insert(personnes, pieces, tirades, textes, dbConnection);
+
             DateTime stop = DateTime.UtcNow;
 
             Console.WriteLine($"Time to proccess : {(start - stop)}");
@@ -85,101 +124,5 @@ namespace ShakespeareSqlite
             Console.WriteLine("Done");
             Console.ReadKey();
         }
-
-        private static MappingData ConvertStringToMappingData(string line)
-        {
-            MappingData data = new MappingData();
-            int id = 0;
-            int tiradeNumber = 0;
-            int acteNumber = 0;
-            int sceneNumber = 0;
-            int versNumber = 0;
-
-            string[] lineSplited = line.Split('|');
-
-            Int32.TryParse(lineSplited[0], out id);
-            Int32.TryParse(lineSplited[2], out tiradeNumber);
-            string numbers = lineSplited[3];
-
-            if (!string.IsNullOrWhiteSpace(numbers))
-            {
-                string[] result = numbers.Split('.');
-                Int32.TryParse(result[0], out acteNumber);
-                Int32.TryParse(result[1], out sceneNumber);
-                Int32.TryParse(result[2], out versNumber);
-            }
-
-            return new MappingData()
-            {
-                Id = id,
-                Title = lineSplited[1],
-                TiradeNumber = tiradeNumber,
-                ActeNumber = acteNumber,
-                SceneNumber = sceneNumber,
-                VersNumber = versNumber,
-                PersonnageName = lineSplited[4],
-                Text = lineSplited[5],
-            };
-        }
-
-        private static async Task<bool> ProccessToDatabase(MappingData[] datas, int length, SQLiteConnection db)
-        {
-            for (int i = 0; i < length; i++)
-            {
-                await SendToDatabase(datas[i], db);
-            }
-
-            //Parallel.For(0, length, async i =>
-            //{
-            //    await SendToDatabase(datas[i], db);
-            //});
-            return false;
-        }
-
-        private static async Task SendToDatabase(MappingData data, SQLiteConnection db)
-        {
-            if (!string.IsNullOrWhiteSpace(data.Title))
-                await SqliteRequest.DbPieces(data.Title, db);
-
-            if (!string.IsNullOrWhiteSpace(data.PersonnageName))
-                await SqliteRequest.DbPersonnages(data.PersonnageName, db);
-
-            if (data.TiradeNumber != 0)
-            {
-                int idPiece = 0;
-                int idPerso = 0;
-
-                if (!string.IsNullOrWhiteSpace(data.Title))
-                    idPiece = await SqliteRequest.SelectIdData(Tables.pieces, data.Title, "titre", db, "id_piece");
-                if (!string.IsNullOrWhiteSpace(data.PersonnageName))
-                    idPerso = await SqliteRequest.SelectIdData(Tables.personnages, data.PersonnageName, "nom_personnage", db, "id_personnage");
-                try
-                {
-                    await SqliteRequest.DbTirade(data.ActeNumber, data.SceneNumber, db, idPerso, idPiece);
-                }
-                catch (Exception e)
-                {
-                    throw new Exception(e.Message);
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(data.Text))
-            {
-                // Get Id tirade
-                int idTirade = 0;
-                int idPiece = 0;
-
-                if (!string.IsNullOrWhiteSpace(data.Title))
-                    idPiece = await SqliteRequest.SelectIdData(Tables.pieces, data.Title, "titre", db, "id_piece");
-
-                if (data.SceneNumber != 0)
-                    idTirade = await SqliteRequest.SelectIdData(Tables.tirades, data.SceneNumber, idPiece, data.ActeNumber, "scene", "id_piece", "acte", db, "id_piece");
-
-                data.Text = data.Text.Replace('\'', ' ');
-                await SqliteRequest.DbText(data.Id, idPiece, idTirade, data.VersNumber, data.Text, db);
-            }
-        }
-
-        
     }
 }
