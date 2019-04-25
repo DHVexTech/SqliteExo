@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.Data.SQLite;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 
@@ -14,16 +13,16 @@ namespace ShakespeareSqlite
     {
         static void Main(string[] args)
         {
-            Run().Wait();
+            Run(args).Wait();
         }
 
-        private static async Task Run()
+        private static async Task Run(string[] args)
         {
-            Console.WriteLine("Sqlite file : ");
-            string bddFile = Console.ReadLine();
+            Console.WriteLine("Sqlite file : loading ");
+            string bddFile = args[0];
 
-            Console.WriteLine("Ressource file : ");
-            string resourceFile = Console.ReadLine();
+            Console.WriteLine("Ressource file : loading ");
+            string resourceFile = args[1];
 
             SQLiteConnection dbConnection = new SQLiteConnection($"Data Source={bddFile};Version=3;");
             dbConnection.Open();
@@ -66,13 +65,13 @@ namespace ShakespeareSqlite
                     string[] lineSplitted = line.Split('|');
 
                     personneName = Splitter.PersonnageSplitter(lineSplitted);
-                    if (!personnes.Exists(x => x == personneName) && !string.IsNullOrEmpty(personneName))
+                    if (!string.IsNullOrEmpty(personneName) && !personnes.Exists(x => x == personneName))
                     {
                         personnes.Add(personneName);
                     }
 
                     pieceName = Splitter.PieceSplitter(lineSplitted);
-                    if (!pieces.Exists(x => x == pieceName) && !string.IsNullOrEmpty(pieceName))
+                    if (!string.IsNullOrEmpty(pieceName) && !pieces.Exists(x => x == pieceName))
                     {
                         pieces.Add(pieceName);
                     }
@@ -92,8 +91,6 @@ namespace ShakespeareSqlite
             {
                 throw new Exception(e.Message);
             }
-
-            int test = personnes.FindIndex(x => x == "KING HENRY IV");
 
             Parallel.For(0, tirades.Count, i =>
             {
